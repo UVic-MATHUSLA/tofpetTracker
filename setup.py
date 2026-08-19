@@ -1,6 +1,2 @@
 from setuptools import find_packages, setup
-
-setup(
-    name='pyTracker',
-    packages=find_packages()
-)
+setup(name='pyTracker', packages=find_packages())

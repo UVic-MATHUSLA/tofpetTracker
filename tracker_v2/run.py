@@ -2,10 +2,7 @@ import sys, os
 import argparse
 import importlib
 import time
-
-# import joblib
 import pickle
-
 
 from tracker import kalmanfilter as KF
 from tracker import vertexfinder as VF
@@ -16,10 +13,7 @@ from tracker import config_default as config
 import functools; print = functools.partial(print, flush=True) #make python actually flush the output!
 
 def main():
-
-    parser = argparse.ArgumentParser(     
-                prog='pytracker',
-                description='Reconstructing track and vertex without magnetic field.',)
+    parser = argparse.ArgumentParser(prog='pytracker', description='Reconstructing track and vertex without magnetic field.',)
     parser.add_argument('input_filename',    type=str, help='Path: input filename')
     parser.add_argument('output_directory',  type=str, help='Path: output directory. The output filename is the output directory + basename of input filename + output_suffix + .pkl')
     parser.add_argument('--output_suffix',   type=str, default="", help='Path: (optional) suffix to the output filename')
@@ -41,11 +35,10 @@ def main():
     output_filename = os.path.abspath(args.output_directory) \
                         + "/"+ os.path.splitext(os.path.basename(args.input_filename))[0]\
                         + args.output_suffix \
-                        + ".pkl"    
+                        + ".pkl"
     if os.path.exists(output_filename) and not args.overwrite:
         print("Output file exists. Processing terminated. Use --overwrite option to force running the tracker, or assign a different suffix by --output_suffix=.")
         return
-
 
     # Parse the configuration
     if len(args.config)>0:
@@ -64,33 +57,26 @@ def main():
         tf.parameters[key] = config.parameters[key]
         vf.parameters[key] = config.parameters[key]
 
-
-    #-------------------------------------------------------------
     # Load the file
-    data, metadata = io_user.load(args.input_filename, printn=2000, \
-                                start_event=config.parameters["start_event"], end_event=config.parameters["end_event"])
-    
+    data, metadata = io_user.load(args.input_filename, 2000, config.parameters["start_event"], config.parameters["end_event"])
+
     # Make variables to hold the result
-    results = {
-        "hits":[],
-        "tracks":[],
-        "vertices":[],
-    }  
+    results = {"hits":[], "tracks":[], "vertices":[]}
     groups = list(data.keys())
     entries = len(data[groups[0]])
     # entries_run = [config.parameters["start_event"], min(config.parameters["end_event"], entries)]
 
     # Some numbers for bookkeepping
-    tracks_found=0
-    tracks_found_events=0
-    vertices_found=0
-    vertices_found_events=0
+    tracks_found = 0
+    tracks_found_events = 0
+    vertices_found = 0
+    vertices_found_events = 0
 
     # Run track and vertex finding on all events
     print(f"Running on {entries} events...")
     time_start = time.time()
     for entry in range(entries):
-        if (entry)%config.parameters["print_n"]==0 or DEBUG:  
+        if (entry) % config.parameters["print_n"] == 0 or DEBUG:
             time_stop=time.time()
             if DEBUG:
                 print("\n\n===================================")
@@ -101,7 +87,7 @@ def main():
         results["vertices"].append([])
         event_tracks=0
         event_vertices=0
-        
+
         for group in groups:
             hits = data[group][entry]
             results["hits"][-1].extend(hits)
@@ -109,42 +95,42 @@ def main():
                 # Rotate hits so that y is always the layer direction
                 if metadata["groups"][group]["flip_index"] is not None:
                     hits = [Util.general.flip_hit(hit, metadata["groups"][group]["flip_index"]) for hit in hits]
-                    
+
                 # Apply detector efficiency
-                if 0<config.parameters["detector_efficiency"]<1:
+                if 0 < config.parameters["detector_efficiency"] < 1:
                     hits = Util.processing.drop_hits(hits, config.parameters["detector_efficiency"], config.parameters["seed"])
-                elif config.parameters["detector_efficiency"]!=1:
+                elif config.parameters["detector_efficiency"] != 1:
                     print("  Warning: detector efficiency is not in the range of (0,1]. Using default value 1.")
-                    
+
                 # Run track and vertex reconstruction
                 tracks = tf.run(hits)
                 # vertices = vf.run(tracks) 
 
                 # Rotate tracks and vertices back
                 if metadata["groups"][group]["flip_index"] is not None:
-                    tracks   = [Util.general.flip_track(track, metadata["groups"][group]["flip_index"]) for track in tracks]                
-                    # vertices = [Util.general.flip_vertex(vertex, metadata["groups"][group]["flip_index"]) for vertex in vertices]                
+                    tracks   = [Util.general.flip_track(track, metadata["groups"][group]["flip_index"]) for track in tracks]
+                    # vertices = [Util.general.flip_vertex(vertex, metadata["groups"][group]["flip_index"]) for vertex in vertices]
 
                 # Save result
                 results["tracks"][-1].extend(tracks)
                 # results["vertices"][-1].extend(vertices)
-                tracks_found+=len(tracks)
-                event_tracks+=len(tracks)
-                # vertices_found+=len(vertices)
-                # event_vertices+=len(vertices)
-                
+                tracks_found += len(tracks)
+                event_tracks += len(tracks)
+                # vertices_found += len(vertices)
+                # event_vertices += len(vertices)
+
         # Assign the tracks a unique index:
         for itrack in range(len(results["tracks"][-1])):
             results["tracks"][-1][itrack] = results["tracks"][-1][itrack]._replace(ind=itrack)
-                
+
         vertices = vf.run(results["tracks"][-1]) 
         results["vertices"][-1].extend(vertices)
-        vertices_found+=len(vertices)
-        event_vertices+=len(vertices)        
+        vertices_found += len(vertices)
+        event_vertices += len(vertices)
 
-        tracks_found_events   += event_tracks>0
-        vertices_found_events += event_vertices>0
-    time_stop=time.time()
+        tracks_found_events += event_tracks > 0
+        vertices_found_events += event_vertices > 0
+    time_stop = time.time()
     print("Finished. Total time",time_stop-time_start, "seconds")
     print("-------------------------")
     print("Summary")
@@ -159,10 +145,8 @@ def main():
     print("Writing file to disk.")
     # joblib.dump(results, output_filename)
     with open(output_filename,"wb") as f:
-        pickle.dump(results, f)  
+        pickle.dump(results, f)
     print("Output saved as",output_filename)
 
-
-            
 if __name__ == "__main__":
-    main()     
+    main()

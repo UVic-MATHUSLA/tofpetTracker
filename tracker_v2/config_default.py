@@ -1,6 +1,5 @@
 parameters = {}
 
-
 # Run parameters
 parameters["debug"]=False                   # Show debug info
 parameters["debug_tracker"]=False
@@ -14,7 +13,6 @@ parameters["detector_efficiency"]=1         # Scintillator efficiency, any numbe
 # Global parameters:
 parameters["multiple_scattering_p"]= 500            # [MeV/c] momentum of multiple scattering, 
 parameters["multiple_scattering_length"]=0.06823501107481977 # [1] material thickness in the unit of attenuation length = thickness/attenuation_length
-
 
 # Track parameters
 parameters["cut_track_SeedSpeed"]=1                 # in the unit of c. Limit the maximum speed formed by the seed.
