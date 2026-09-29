@@ -1,20 +1,16 @@
 import copy
-
-
 import numpy as np
 from numpy.linalg import inv
 import scipy as sp
-import scipy.constants
-import scipy.stats
+import functools
+print = functools.partial(print, flush=True) # make python actually flush the output!
 
 # Internal modules
-from . import utilities as Util
-from . import kalmanfilter as KF
-from . import datatypes
-import functools; print = functools.partial(print, flush=True) #make python actually flush the output!
+from tracker import utilities as Util
+from tracker import kalmanfilter as KF
+from tracker import datatypes
 
 
-# ----------------------------------------------------------------------
 class TrackFinder:
     def __init__(self, parameters=None, method="recursive", debug=False):
         self.method = method # {"recursive", "greedy"}
@@ -58,117 +54,100 @@ class TrackFinder:
             self.seeds_unused = []
             while len(self.seeds)>0:
                 if len(self.hits_grouped.keys())<self.parameters["cut_track_TrackNHitsMin"]: # If not enough hits left:
-                    break                 
-                
-                # ------------------------------------
+                    break
+
                 # Round 1: Find hits that belongs to one track
-                seed = self.seeds[-1]; 
-                
-                # print(len(self.seeds), len(self.seeds_unused))
-                
-                
+                seed = self.seeds[-1]
                 if self.debug: print(f"--- New seed --- \n [Seed]: {seed}")
                 hits_found, track_chi2 = self.find_once(self.hits, self.hits_grouped, seed, self.hit_pair)
                 # Remove the current seed no matter the track is good or not:
-                self.seeds.pop(-1)                
-                # Apply cuts
-                # If not enough hits, drop this track
-                # print(len(hits_found))
-                if len(hits_found)<track_TrackNHitsMin:
-                    if self.debug: print(f"   finding failed (adding), not enough hits. Hits found: {len(hits_found)}")
+                self.seeds.pop(-1)
+
+                # Apply cuts: if not enough hits, drop this track
+                if len(hits_found) < track_TrackNHitsMin:
+                    if self.debug: print(f"   Track finding failed (adding), not enough hits only found: {len(hits_found)}")
                     # Keep the seeds that potentially matches to a track
-                    if len(hits_found)>=self.parameters["cut_track_TrackNHitsMin"]:
-                        self.seeds_unused.append(seed)  
+                    if len(hits_found) >= self.parameters["cut_track_TrackNHitsMin"]:
+                        self.seeds_unused.append(seed)
                         # print("seed added back")
                         # if len(hits_found)==track_TrackNHitsMin-1:
-                        #     self.remove_related_seeds(self.seeds, hits_found)                  
+                        #     self.remove_related_seeds(self.seeds, hits_found)
                     continue
 
-
                 # Sort the hits by time before running the filter
-                hits_found.sort(key=lambda hit: hit.t)
+                hits_found.sort(key = lambda hit: hit.t)
 
-                # ------------------------------------
                 # Round 2: Run filter and smooth with the option to drop outlier during smoothing
                 kalman_result, inds_dropped = self.filter_smooth(hits_found, drop_chi2=self.parameters["cut_track_HitDropChi2"])
-                inds_dropped.sort(reverse=True)
+                inds_dropped.sort(reverse = True)
                 for ind in inds_dropped:
                     hits_found.pop(ind)
                 # If not enough hits, drop this track
-                if len(hits_found)<track_TrackNHitsMin:
-                    if self.debug: print(f"   finding failed (dropping), not enough hits. Hits found: {len(hits_found)}")
+                if len(hits_found) < track_TrackNHitsMin:
+                    if self.debug: print(f"   Track finding failed (dropping), not enough hits only found: {len(hits_found)}")
                     # Keep the seeds that potentially matches to a track
-                    if len(hits_found)>=self.parameters["cut_track_TrackNHitsMin"]:
-                        self.seeds_unused.append(seed)   
+                    if len(hits_found) >= self.parameters["cut_track_TrackNHitsMin"]:
+                        self.seeds_unused.append(seed)
                     continue 
 
-
-                # # ------------------------------------
-                # # Round 3: Run filter again on found hits
-                if self.parameters["fit_track_Method"]=="backward": 
+                # Round 3: Run filter again on found hits using method specified by user
+                if self.parameters["fit_track_Method"] == "backward":
                     # Run filter backwards, no smoothing
-                    kalman_result, inds_dropped = self.filter_smooth(hits_found[::-1], drop_chi2=-1)   # This time we run the filter backwards
-                    # prepare the output
-                    track_output = self.prepare_output_back(kalman_result, hits_found, track_ind = len(self.tracks))                  
-                elif self.parameters["fit_track_Method"]=="forward":   
-                    # Run filter forward with smoothing, use first two hits to initialize                      
-                    kalman_result, inds_dropped = self.filter_smooth(hits_found, drop_chi2=-1)  
-                    # prepare the output
-                    track_output = self.prepare_output(kalman_result, hits_found, track_ind = len(self.tracks))  
+                    kalman_result, inds_dropped = self.filter_smooth(hits_found[::-1], drop_chi2=-1)
+                    track_output = self.prepare_output_back(kalman_result, hits_found, track_ind = len(self.tracks))
 
-                elif self.parameters["fit_track_Method"]=="forward-seed": 
-                    # Run filter forward with smoothing, use first and last hit to initialize                      
-                    # Set initial state using first and last hits
-                    m0, V0, H0, Xf0, Cf0, Rf0 = Util.track.init_state([hits_found[-1],hits_found[0]]) # Use the first two hits to initiate
-                    kalman_result =Util.track.run_kf(hits_found, initial_state=Xf0, initial_cov=Cf0, multiple_scattering=True)
-                    # Finally, prepare the output
-                    track_output = self.prepare_output_v2(kalman_result, hits_found, track_ind = len(self.tracks))   
+                elif self.parameters["fit_track_Method"] == "forward":
+                    # Run filter forward with smoothing, use first two hits to initialize
+                    kalman_result, inds_dropped = self.filter_smooth(hits_found, drop_chi2=-1)
+                    track_output = self.prepare_output(kalman_result, hits_found, track_ind = len(self.tracks))
 
-                elif self.parameters["fit_track_Method"]=="least-square": 
-                    # Run least square fit                    
+                elif self.parameters["fit_track_Method"] == "forward-seed": 
+                    # Run filter forward with smoothing, set initial state using first and last hit
+                    m0, V0, H0, Xf0, Cf0, Rf0 = Util.track.init_state([hits_found[-1], hits_found[0]])
+                    kalman_result = Util.track.run_kf(hits_found, initial_state=Xf0, initial_cov=Cf0, multiple_scattering=True)
+                    track_output = self.prepare_output_v2(kalman_result, hits_found, track_ind=len(self.tracks))
+
+                elif self.parameters["fit_track_Method"] == "least-square":
+                    # Run least square fit
                     guess = Util.track.guess_track(hits_found)
                     fit_ls = Util.track.fit_track_scattering(hits_found,guess) if self.parameters["fit_track_MultipleScattering"] else Util.track.fit_track(hits_found,guess) 
                     popt = fit_ls.values
                     pcov = fit_ls.covariance
                     chi2 = fit_ls.fval
-                    # Finally, prepare the output
-                    track_output = self.prepare_output_ls(popt, pcov, chi2, hits_found, track_ind = len(self.tracks))  
-                elif self.parameters["fit_track_Method"]=="least-square-ana": 
-                    # Run analytical least square fit (less iteration during minimization)                      
-                    popt,pcov,chi2 = Util.track.fit_track_ana(hits_found, scattering = self.parameters["fit_track_MultipleScattering"], iters = self.parameters["fit_track_LeastSquareIters"]) 
-                    # Finally, prepare the output
-                    track_output = self.prepare_output_ls(popt, pcov, chi2, hits_found, track_ind = len(self.tracks))                                                                                   
+                    track_output = self.prepare_output_ls(popt, pcov, chi2, hits_found, track_ind=len(self.tracks))
+
+                elif self.parameters["fit_track_Method"] == "least-square-ana":
+                    # Run analytical least square fit (less iteration during minimization)
+                    popt, pcov, chi2 = Util.track.fit_track_ana(hits_found, scattering=self.parameters["fit_track_MultipleScattering"], iters=self.parameters["fit_track_LeastSquareIters"]) 
+                    track_output = self.prepare_output_ls(popt, pcov, chi2, hits_found, track_ind=len(self.tracks))
 
                 # Cut on chi2 probablity
-                ndof = 3*len(hits_found) - 6
+                ndof = 3 * len(hits_found) - 6
                 track_chi2 = track_output.chi2
-                track_chi2_prob = sp.stats.chi2.cdf(track_chi2, ndof)         
-                track_chi2_reduced = track_chi2/ndof        
-                if (track_chi2_prob>self.parameters["cut_track_TrackChi2Prob"] and ndof>3) or \
-                   (track_chi2_reduced>self.parameters["cut_track_TrackChi2Reduced"] and ndof<=3):
-                    if self.debug: 
+                track_chi2_prob = sp.stats.chi2.cdf(track_chi2, ndof)
+                track_chi2_reduced = track_chi2/ndof
+                if (track_chi2_prob > self.parameters["cut_track_TrackChi2Prob"] and ndof > 3) or \
+                   (track_chi2_reduced > self.parameters["cut_track_TrackChi2Reduced"] and ndof <= 3):
+                    if self.debug:
                         print(f" Track vetoed, chi2 too large. Chi2/nodf: {track_chi2}/{ndof}, prob = {track_chi2_prob}")
-                    continue    
+                    continue
 
                 # Cut on speed
                 state = track_output # Track is a namedtuple("Track", ["x0", "y0", "z0", "t", "Ax", "Ay", "Az", "At", "cov", "chi2", "ind", "hits", "hits_filtered"])
-                speed = np.linalg.norm([state.Ax/state.At, state.Az/state.At, 1/state.At])  
-                if not (self.parameters["cut_track_TrackSpeed"][0]<speed<self.parameters["cut_track_TrackSpeed"][1]):
+                speed = np.linalg.norm([state.Ax/state.At, state.Az/state.At, 1/state.At])
+                if not (self.parameters["cut_track_TrackSpeed"][0] < speed < self.parameters["cut_track_TrackSpeed"][1]):
                     if self.debug: print(f" Track vetoed. Speed of the track: {speed}[cm/ns]")
-                    continue    
-                elif self.debug: 
-                    print(f" [Track found]", track_output) 
-                    print(" Added hits:")
+                    continue
+                elif self.debug:
+                    print(f"   [Track found]", track_output) 
+                    print("   Added hits:")
                     for t in hits_found:
-                        print("  ", t)                                      
+                        print("   ", t)
 
-
-                self.tracks.append(track_output)   
-
-                # Remove other seeds that shares hits of the found track
+                # Add track and remove other seeds that shares hits of the found track
+                self.tracks.append(track_output)
                 self.remove_related_hits_seeds(hits_found)
-                hits_found_all.extend(hits_found)  
-                                 
+                hits_found_all.extend(hits_found)
 
             # Remove hits that are already added to track
             hit_found_inds.extend([hit.ind for hit in hits_found_all])
@@ -182,19 +161,12 @@ class TrackFinder:
             # Group the remaining hits
             # self.hits_grouped = Util.track.group_hits_by_layer(self.hits, used_index = hit_found_inds)
 
-
-
         if self.debug:
-            print("=====================================")
             print("=========Track finding finished======")
             print("Tracks found:")
             for t in self.tracks:
                 print(t)
-
-
-
         return self.tracks
-
 
 
     # def find(self, hits):
@@ -209,26 +181,18 @@ class TrackFinder:
 
     #         # Remove the current seed no matter the track is good or not:
     #         self.seeds.pop(-1)         
-    #         # Apply cuts
-    #         # If not enough hits, drop this track
-    #         if len(hits_found)<self.parameters["cut_track_TrackNHitsMin"]:
-    #             continue            
+    #         # Apply cuts: if not enough hits, drop this track
+    #         if len(hits_found)<self.parameters["cut_track_TrackNHitsMin"]: continue
     #         ndof = 3*len(hits_found) - 6
-    #         if ndof<=0:
-    #             continue            
-    #         track_chi2_reduced = track_chi2/ndof                   
+    #         if ndof<=0: continue
+    #         track_chi2_reduced = track_chi2/ndof
     #         # If chi2 is too large, drop this track
     #         if track_chi2_reduced>self.parameters["cut_track_TrackChi2Reduced"]:
     #             continue
-
-
     #         # Attach the track if it pass the cuts
     #         self.tracks_found.append(hits_found)
-
     #         # Remove other seeds that are in the track
     #         self.remove_related_hits_seeds(hits_found)
-            
-
     #     return self.tracks_found
 
 
@@ -237,167 +201,143 @@ class TrackFinder:
         Find seed for tracks
         Returns a pair of index of the hit (not the hit itself!) and a score
         """
-        c=sp.constants.c/1e7 # [cm/ns]
-        seeds=[]
+        c = sp.constants.c/1e7 # [cm/ns]
+        seeds = []
         for i in range(len(hits)):
             for j in range(i+1, len(hits)):
-                if (hits[i].y == hits[j].y) or (hits[i].layer == hits[j].layer):
-                    continue
-                if hits[i].ind in used_index   or  hits[j].ind in used_index:
-                    continue
+                if(hits[i].y == hits[j].y) or (hits[i].layer == hits[j].layer): continue
+                if hits[i].ind in used_index or hits[j].ind in used_index: continue
                 dx = hits[i].x- hits[j].x
                 dy = hits[i].y- hits[j].y
                 dz = hits[i].z- hits[j].z
                 dt = hits[i].t- hits[j].t
-                # ds = np.abs((dx**2+dy**2+dz**2)/c**2-dt**2)
-                # ds = ds/dt**2
-                # if ds>self.parameters["cut_track_SeedSpeed"]:
-                #     continue
-                # seeds.append([i,j,ds,-abs(dy)])
-                
                 dr = np.linalg.norm([dx,dy,dz])
                 ds = abs(dr/c - abs(dt))
                 if ds > 1:
                     continue
-                seeds.append([i,j, dr, abs(dy)])
+                seeds.append([i, j, dr, abs(dy)])
 
-        # Sort seeds by score
-        # Larger gap is better.
-        # Sorting from small to large is placing the best one at the end
+        # Sort by score, larger gap = better, small to large is placing best one at end
         seeds.sort(key=lambda s: (s[3], s[2]))
         return seeds
 
-    def find_once(self, hits, hits_layer_grouped, seed, hit_pair):  
-        #### General info ####
-        LAYERS = np.sort(list(hits_layer_grouped.keys()))
 
-        ##### Seed ####
+    def find_once(self, hits, hits_layer_grouped, seed, hit_pair):
+        LAYERS = np.sort(list(hits_layer_grouped.keys()))
         # Check the direction of seed by comparing the time of two hits
         seed_hits = [hits[seed[0]], hits[seed[1]]]
         # Always have the first hit to be first in time
-        if (seed_hits[0].t > seed_hits[1].t):
-            seed_hits = seed_hits[::-1]
+        if (seed_hits[0].t > seed_hits[1].t): seed_hits = seed_hits[::-1]
         seed_start_layer = seed_hits[0].layer
-        seed_stop_layer  = seed_hits[1].layer        
+        seed_stop_layer  = seed_hits[1].layer
         # Check if needed to find backward or forward
         if (seed_hits[0].layer > seed_hits[1].layer):
             TRACK_DIRECTION = 0 # Downward track
-            FIND_BACKWARD_LAYERS = LAYERS[np.argmax(LAYERS>seed_stop_layer):]     
+            FIND_BACKWARD_LAYERS = LAYERS[np.argmax(LAYERS > seed_stop_layer):]
         else:
             TRACK_DIRECTION = 1 # Upward track
-            FIND_BACKWARD_LAYERS = LAYERS[:np.argmax(LAYERS>seed_stop_layer)-1][::-1]
-            
-        # print(seed_hits[0].layer , seed_hits[1].layer, LAYERS,seed_stop_layer)
+            FIND_BACKWARD_LAYERS = LAYERS[:np.argmax(LAYERS > seed_stop_layer)-1][::-1]
 
-        FIND_FORWARD = True # Always find forward
-        FIND_BACKWARD= True if len(FIND_BACKWARD_LAYERS)>1 else False  # Find backwards only when there are more than one layer before the second hit in of the seed
+        # Always find forward, only find backward when there is more than one layer before second hit in of seed
+        FIND_FORWARD = True
+        FIND_BACKWARD = True if len(FIND_BACKWARD_LAYERS)>1 else False
 
-
-        ##### Find ####
+        # Find: Start with the second hit of the seed, and find backward and forward
         hits_found = [seed_hits[1]]
         chi2_found = 0
+        # Find backward first, then find forward
         if FIND_BACKWARD:
             step_pre = seed_hits[1].y # Keep track of the y of the previous step
 
             kf_find = KF.KalmanFilterFind()
             kf_find.init_filter(*Util.track.init_state(seed_hits))
-            
-            if self.debug: print(" Finding backward in layers", FIND_BACKWARD_LAYERS)
-            if self.method=="recursive":
+
+            if self.debug: print("   Finding backward in layers", FIND_BACKWARD_LAYERS)
+            if self.method == "recursive":
                 hits_found_backward, chi2 = self.find_in_layers_recursive(hits, hits_layer_grouped, FIND_BACKWARD_LAYERS, kf_find, step_pre)
             else:
-                hits_found_backward, chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_BACKWARD_LAYERS, kf_find, step_pre, hit_pair = hit_pair)
+                hits_found_backward, chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_BACKWARD_LAYERS, kf_find, step_pre, hit_pair)
             # Order of found hits also needs to be reversed for backward finding
             hits_found_backward = hits_found_backward[::-1] 
-            hits_found_backward.extend(hits_found)   
+            hits_found_backward.extend(hits_found)
             hits_found = hits_found_backward
         else:
-            hits_found = seed_hits     
-               
+            hits_found = seed_hits
+        # Find forward
         if FIND_FORWARD:
-            if len(hits_found)<2:
+            if len(hits_found) < 2:
                 return [], []
-            # Reset the seed to be the first and the last hit
-            # seed_hits = [hits_found[0], hits_found[-1]]#hits_found[:2]            
-            seed_hits = hits_found[:2]    
-            
+            # Reset seed to be first and last hit: seed_hits = [hits_found[0], hits_found[-1]]
+            seed_hits = hits_found[:2]
             step_pre = seed_hits[1].y # Keep track of the y of the previous step
-            if max(LAYERS)==seed_hits[1].layer:
-                return hits_found, chi2_found
 
-            if (seed_hits[0].layer > seed_hits[1].layer):
-                FIND_FORWARD_LAYERS = LAYERS[:np.argmax(LAYERS>seed_hits[1].layer)-1][::-1]
+            if max(LAYERS) == seed_hits[1].layer:           # If last hit in last layer, no need to find forward
+                return hits_found, chi2_found
+            if (seed_hits[0].layer > seed_hits[1].layer):   # If first hit in a layer after second hit, find forward in layers before second hit
+                FIND_FORWARD_LAYERS = LAYERS[:np.argmax(LAYERS > seed_hits[1].layer)-1][::-1]
             else:
-                FIND_FORWARD_LAYERS  = LAYERS[np.argmax(LAYERS>seed_hits[1].layer):] 
+                FIND_FORWARD_LAYERS  = LAYERS[np.argmax(LAYERS > seed_hits[1].layer):] 
 
             kf_find = KF.KalmanFilterFind()
             kf_find.init_filter(*Util.track.init_state(seed_hits)) # Set initial state using two hits specified by the seed
-            if self.debug: print(" Finding forward in layers", FIND_FORWARD_LAYERS )
-            if self.method=="recursive":
+
+            if self.debug: print(".  Finding forward in layers", FIND_FORWARD_LAYERS )
+            if self.method == "recursive":
                 hits_found_forward,chi2 = self.find_in_layers_recursive(hits, hits_layer_grouped, FIND_FORWARD_LAYERS, kf_find, step_pre)
             else:
-                hits_found_forward,chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_FORWARD_LAYERS, kf_find, step_pre, hit_pair = hit_pair)
-            chi2_found=chi2
+                hits_found_forward,chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_FORWARD_LAYERS, kf_find, step_pre, hit_pair)
+            chi2_found = chi2
             hits_found = hits_found[:2] + hits_found_forward
-   
+
         return hits_found,chi2_found
 
     def find_in_layers_greedy(self, hits, hits_layer_grouped, layers_to_scan, kf_find, step_pre, cut_chi2=True, hit_pair=None):
-        """
-        Find the hit that has minimum chi2 in each layer
-        """
+        """Find the hit that has minimum chi2 in each layer"""
         hits_found = []
         for layer in layers_to_scan:
             hits_thislayer = hits_layer_grouped[layer]
-            if len(hits_thislayer)==0:
+            if len(hits_thislayer) == 0:
                 continue
-            
+
             # Use the pre-calculated hit pair info to see if there are any compatible hits
             if hit_pair is not None:
                 # If there is no hit to match the previous hit, break the loop immediately
-                if len(hits_found)>0 and (not hit_pair.exists_hit(hits_found[-1])):
+                if len(hits_found) > 0 and (not hit_pair.exists_hit(hits_found[-1])):
                     print("--no matched hit")
                     break
 
-            # Get one hit
-            hit = hits_thislayer[0]
+            hit = hits_thislayer[0]             # Get one hit
+            step_this = hits_thislayer[0].y     # Get the prediction matrix 
+            dy = step_this - step_pre           # Step size
+            Ax, Az, At = kf_find.Xf[3:]         # Get the state vector
 
-            # Get the prediction matrix 
-            step_this = hits_thislayer[0].y 
-            dy = step_this - step_pre # Step size
+            # Velocity is needed for multiple scattering
+            velocity = [Ax, Az, At] if self.parameters["cut_track_MultipleScatteringFind"] else None
+             # Calculate matrices. Only need to do once for all this in the same layer
+            _, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_thislayer[0],dy,velocity,self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"])
+            
+            kf_find.update_matrix(Vi, Hi, Fi, Qi)       # pass matrices to KF
+            Xp = kf_find.Xp_i                           # Use the Predicted location to limit the search range
+            Xp_unc = np.sqrt(np.diag(kf_find.Rp_i))     # Use the uncertainty of the prediction to limit the search range
+            N_sigma = self.parameters["cut_track_HitProjectionSigma"]   # Get the number of sigma to use for the cut
 
-            Ax, Az, At = kf_find.Xf[3:]
-            velocity = [Ax, Az, At]     if self.parameters["cut_track_MultipleScatteringFind"] else None       # Velocity is needed for multiple scattering            
-            _, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_thislayer[0], dy, velocity,
-                                            self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"]) # Calculate matrices. Only need to do once for all this in the same layer
-            kf_find.update_matrix(Vi, Hi, Fi, Qi) # pass matrices to KF
-
-            # Use the Predicted location to limit the search range
-            Xp = kf_find.Xp_i
-            Xp_unc = np.sqrt(np.diag(kf_find.Rp_i))
-            # Function to test if new measurement is within N_sigma times the uncertainty ellipsoid
-            N_sigma = self.parameters["cut_track_HitProjectionSigma"]
             # Use the total uncertainty of the prediction plus the measurement
             unc_total = [np.linalg.norm([hit.x_err,Xp_unc[0]]), np.linalg.norm([hit.z_err,Xp_unc[1]]), np.linalg.norm([hit.t_err,Xp_unc[2]])]
             test_measurement_incompatible = lambda x,z,t: abs(x-Xp[0])>unc_total[0]*N_sigma or \
-                                                        abs(z-Xp[1])>unc_total[1]*N_sigma or \
-                                                        abs(t-Xp[2])>unc_total[2]*N_sigma or \
-                                                        ((x-Xp[0])/unc_total[0])**2 + ((z-Xp[1])/unc_total[1])**2 + ((t-Xp[2])/unc_total[2])**2 > N_sigma**2            
+                                                          abs(z-Xp[1])>unc_total[1]*N_sigma or \
+                                                          abs(t-Xp[2])>unc_total[2]*N_sigma or \
+                                                        ((x-Xp[0])/unc_total[0])**2 + ((z-Xp[1])/unc_total[1])**2 + ((t-Xp[2])/unc_total[2])**2 > N_sigma**2
 
             # Calculate chi2 for all hits in the next layer
-            # chi2_predict = [kf_find.forward_predict_chi2(np.array([mi.x, mi.z, mi.t])) for mi in hits_thislayer]
             chi2_predict=[]
             chi2_predict_inds =[]
             for imeasurement, m in enumerate(hits_thislayer):
                 # Use the pre-calculated hit pair info to narrow down the search
                 if hit_pair is not None:
-                    if len(hits_found)>0 and (not hit_pair.exists_pair(hits_found[-1], m)):
-                        # print("--no matched hit pair")
-                        continue
-                                    
+                    if len(hits_found) > 0 and (not hit_pair.exists_pair(hits_found[-1], m)): continue
+
                 # A more strict test of compatibility
-                if test_measurement_incompatible(m.x, m.z, m.t):
-                    continue
+                if test_measurement_incompatible(m.x, m.z, m.t): continue
                 else:
                     chi2 = kf_find.forward_predict_chi2(np.array([m.x, m.z, m.t]))
                     chi2_predict.append(chi2)
@@ -405,29 +345,24 @@ class TrackFinder:
             if len(chi2_predict)==0:
                 continue
 
-
             # Find the hit with minimum chi2
             chi2_min_idx = np.argmin(chi2_predict)
-            if chi2_predict[chi2_min_idx]<self.parameters["cut_track_HitAddChi2"] or not cut_chi2:
+            if chi2_predict[chi2_min_idx] < self.parameters["cut_track_HitAddChi2"] or not cut_chi2:
                 # Save the hit either if the chi2 is lower than the threshold, or the cut is disabled
                 hits_found.append(hits_thislayer[chi2_predict_inds[chi2_min_idx]])
                 # Update the step and the Kalman filter
                 step_pre = step_this
                 mi = hits_found[-1]
                 kf_find.forward_filter(np.array([mi.x, mi.z, mi.t]))
-                if self.debug: print("  Hit found:", mi, "; chi2", chi2_predict[chi2_min_idx],chi2_predict[chi2_min_idx]<self.parameters["cut_track_HitAddChi2"], cut_chi2)
-
+                if self.debug: print("   Hit found:", mi, "; chi2", chi2_predict[chi2_min_idx],chi2_predict[chi2_min_idx]<self.parameters["cut_track_HitAddChi2"], cut_chi2)
             else:
-                if self.debug: print(f"  No hits added from layer {layer}. Chi2 of hits {chi2_predict}. Hits", np.array(hits_thislayer)[chi2_predict_inds])
-
+                if self.debug: print(f"   No hits added from layer {layer}. Chi2 of hits {chi2_predict}. Hits", np.array(hits_thislayer)[chi2_predict_inds])
 
         return hits_found, kf_find.chift_total
 
 
     def find_in_layers_recursive(self, hits, hits_layer_grouped, layers_to_scan, kf_find, step_pre):
-        """
-        Find the hits that has minimum chi2 in total
-        """
+        """Find the hits that has minimum chi2 in total"""
         self.found_hit_groups = []
         self.found_chi2_groups = []
 
@@ -442,11 +377,12 @@ class TrackFinder:
 
         # Find the group with minimum chi2 per hit
         n_hits = [max(len(i),1) for i in self.found_hit_groups] # limit to be at least 1 to not mess up the divide in the following line
-        chi2_reduced = np.sum(self.found_chi2_groups, axis=1)/n_hits
+        chi2_reduced = np.sum(self.found_chi2_groups, axis=1) / n_hits
         ind_minchi2 = np.argmin(chi2_reduced)
-        hits_found = [hits[i] for i in self.found_hit_groups[ind_minchi2] ]
+        hits_found = [hits[i] for i in self.found_hit_groups[ind_minchi2]]
         return hits_found, chi2_reduced[ind_minchi2]
-        
+
+
     def _find_in_layers_recursive(self, hits_layer_grouped, layers_to_scan, kf_find, step_pre, current_layer_ind, found_hits_inds, found_chi2s):
         current_layer_ind+=1 
 
@@ -458,55 +394,50 @@ class TrackFinder:
         layer = layers_to_scan[current_layer_ind]
         hits_thislayer = hits_layer_grouped[layer]
 
-        # Get the prediction matrix 
-        step_this = hits_thislayer[0].y 
-        dy = step_this - step_pre # Step size
-        step_pre = step_this
-        Ax, Az, At = kf_find.Xf[3:]
-        velocity = [Ax, Az, At]     if self.parameters["cut_track_MultipleScatteringFind"] else None   # Velocity is needed for multiple scattering        
-        _, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_thislayer[0], dy, velocity,
-                                            self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"]) # Calculate matrices. Only need to do once for all this in the same layer
+        step_this = hits_thislayer[0].y     # Get the prediction matrix 
+        dy = step_this - step_pre           # Step size
+        step_pre = step_this                # Update the step for the next recursion
+        Ax, Az, At = kf_find.Xf[3:]         # Get the state vector
+
+        # Velocity is needed for multiple scattering
+        velocity = [Ax, Az, At]     if self.parameters["cut_track_MultipleScatteringFind"] else None
+        # Calculate matrices. Only need to do once for all this in the same layer
+        _, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_thislayer[0],dy,velocity,self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"])
         kf_find.update_matrix(Vi, Hi, Fi, Qi) # pass matrices to KF
 
         # Predicted location 
         Xp = kf_find.Xp_i
         Xp_unc = np.sqrt(np.diag(kf_find.Rp_i))
-        # Function to test if new measurement is within N_sigma times the uncertainty ellipsoid
         N_sigma = self.parameters["cut_track_HitProjectionSigma"]
         # Use the total uncertainty of the prediction plus the measurement
         hit = hits_thislayer[0]
         unc_total = [np.linalg.norm([hit.x_err,Xp_unc[0]]), np.linalg.norm([hit.z_err,Xp_unc[1]]), np.linalg.norm([hit.t_err,Xp_unc[2]])]
         test_measurement_incompatible = lambda x,z,t: abs(x-Xp[0])>unc_total[0]*N_sigma or \
-                                                    abs(z-Xp[1])>unc_total[1]*N_sigma or \
-                                                    abs(t-Xp[2])>unc_total[2]*N_sigma or \
-                                                    ((x-Xp[0])/unc_total[0])**2 + ((z-Xp[1])/unc_total[1])**2 + ((t-Xp[2])/unc_total[2])**2 > N_sigma**2    
+                                                      abs(z-Xp[1])>unc_total[1]*N_sigma or \
+                                                      abs(t-Xp[2])>unc_total[2]*N_sigma or \
+                                                      ((x-Xp[0])/unc_total[0])**2 + ((z-Xp[1])/unc_total[1])**2 + ((t-Xp[2])/unc_total[2])**2 > N_sigma**2    
 
         # calculate chi2 for all hits in the next layer
         for imeasurement, m in enumerate(hits_thislayer):
             # Limit our search to the hits close to prediction:
-            if test_measurement_incompatible(m.x, m.z, m.t):
-                continue
-            # print(m.x, m.z, m.t)
-            # print(Xp[:3])
-            # print(test_measurement_compatible(m.x, m.z, m.t))
+            if test_measurement_incompatible(m.x, m.z, m.t): continue
 
             # Make copys for hits and chi2s for each recursion
             found_hits_inds_i = copy.deepcopy(found_hits_inds)
-            found_chi2s_i = copy.deepcopy(found_chi2s)            
+            found_chi2s_i = copy.deepcopy(found_chi2s)
             kf_find_i = copy.deepcopy(kf_find)
             # Run Kalman filter
             chi2 = kf_find_i.forward_filter(np.array([m.x, m.z, m.t]))
             found_hits_inds_i.append(m.ind)
             found_chi2s_i.append(chi2)
             self._find_in_layers_recursive(hits_layer_grouped, layers_to_scan, kf_find_i, step_pre, current_layer_ind, found_hits_inds_i, found_chi2s_i)
-                
         return
+
 
     def remove_related_hits_seeds(self, hits_found):
         hits_found_inds = [hit.ind for hit in hits_found]
         hits_found_inds.sort(reverse=True)
-        # Remove seeds 
-        # Need to do backwards to not change the index
+        # Remove seeds: need to do backwards to not change the index
         for i in reversed(range(len(self.seeds))):
             seed = self.seeds[i]
             if (self.hits[seed[0]].ind in hits_found_inds) or (self.hits[seed[1]].ind in hits_found_inds):
@@ -521,53 +452,45 @@ class TrackFinder:
 
             if len(hits)==0:
                 self.hits_grouped.pop(layer)
-                
+
         # Clean up the hit pair:
         for ind in hits_found_inds:
             self.hit_pair.pop_ind(ind)
-                
+
+
     def remove_related_seeds(self, seeds, hits_found):
         hits_found_inds = [hit.ind for hit in hits_found]
         hits_found_inds.sort(reverse=True)
-        # Remove seeds 
-        # Need to do backwards to not change the index
+        # Remove seeds: need to do backwards to not change the index
         for i in reversed(range(len(seeds))):
             seed = seeds[i]
             if (self.hits[seed[0]].ind in hits_found_inds) or (self.hits[seed[1]].ind in hits_found_inds):
-                seeds.pop(i)           
-
+                seeds.pop(i)
 
 
     def filter_smooth(self, hits, drop_chi2=-1):
         """
         Run the forward filter and backward smooth at once
-        
-        INPUT
-        ---
-        hits: list
-            A list of all hits in a track
-        drop_chi2: float
-            for values less than zero, disable dropping
-            for values zero, the steps with chi2 larger than this number will be dropped
+        hits (list): A list of all hits in a track
+        drop_chi2 (float): for values less than zero, disable dropping
+                           for values zero, the steps with chi2 larger than this number will be dropped
         """
         kf = KF.KalmanFilter()
 
-        # Set initial state using first two hits
-        m0, V0, H0, Xf0, Cf0, Rf0 = Util.track.init_state(hits) # Use the first two hits to initiate
+        # Set initial state using first two hits to initiate it
+        m0, V0, H0, Xf0, Cf0, Rf0 = Util.track.init_state(hits)
         kf.init_filter( m0, V0, H0, Xf0, Cf0, Rf0)
-        
 
         # Feed all measurements to KF
-        for i in range(2,len(hits)):   
-            # get updated matrix
+        for i in range(2,len(hits)):
+            # Get updated matrix
             hit = hits[i]
             dy  = hits[i].y-hits[i-1].y
-
             Ax, Az, At = kf.Xf[-1][3:]
-            velocity = [Ax, Az, At]     if self.parameters["fit_track_MultipleScattering"] else None        # Velocity is needed for multiple scattering
-            mi, Vi, Hi, Fi, Qi = Util.track.add_measurement(hit, dy, velocity,
-                                            self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"])
-            
+            # Velocity is needed for multiple scattering
+            velocity = [Ax, Az, At] if self.parameters["fit_track_MultipleScattering"] else None
+            mi, Vi, Hi, Fi, Qi = Util.track.add_measurement(hit,dy,velocity,self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"])
+
             # pass to KF
             kf.forward_predict(mi, Vi, Hi, Fi, Qi)
             kf.forward_filter()
@@ -581,42 +504,34 @@ class TrackFinder:
             kf.init_smooth()
             while kf.CURRENT_STEP>=0:
                 chi2_temp = kf.smooth_step_try()
-
-                dropped =  chi2_temp>drop_chi2
+                dropped =  chi2_temp > drop_chi2
                 if dropped:
                     dropped_inds.append(kf.CURRENT_STEP)
                     if self.debug: print(f"   hit dropped with chi2 {chi2_temp}. Hit {hits[kf.CURRENT_STEP][:6]}")
                 # Finishing the current step
                 kf.smooth_step(drop = dropped)
 
-        return kf, dropped_inds 
+        return kf, dropped_inds
 
-    
 
     def prepare_output(self, kalman_result, hits_found, track_ind=0):
-        """ 
-        Turn the Kalman filter result into a Track object
-
-        """
-        # propagate the KF result from the second hit to the first hit
+        """ Turn the Kalman filter result into a Track object"""
+        # Propagate the KF result from the second hit to the first hit
         Ax, Az, At = kalman_result.Xsm[0][3:]
-        velocity = [Ax, Az, At]     if self.parameters["fit_track_MultipleScattering"] else None       # Velocity is needed for multiple scattering      
+        # Velocity is needed for multiple scattering
+        velocity = [Ax, Az, At] if self.parameters["fit_track_MultipleScattering"] else None
 
         mi, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_found[0], hits_found[0].y - hits_found[1].y, velocity,
                                             self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"])
         Xp_i = Fi@kalman_result.Xsm[0]
-        Cp_i = Fi@kalman_result.Csm[0]@Fi.T + Qi 
-
+        Cp_i = Fi@kalman_result.Csm[0]@Fi.T + Qi
         rp_i = mi - Hi@Xp_i
         Rp_i = Vi + Hi@Cp_i@Hi.T
-        # Kalman Gain K
-        K = Cp_i.dot(Hi.T).dot(inv(Rp_i))
-        # Filtered State
-        Xf = Xp_i + K@rp_i# Combination of the predicted state, measured values, covariance matrix and Kalman Gain
+        K = Cp_i.dot(Hi.T).dot(inv(Rp_i))       # Kalman Gain (K)
+        Xf = Xp_i + K@rp_i# Filtered state: combo of predicted state, measured values, covariance matrix, Kalman gain
         Cf = (np.identity(len(Xf)) - K@Hi).dot(Cp_i)
         state_predicted_step_0 = Xf
         statecov_predicted_step_0 = Cf 
-
 
         # Add the covariance of one additional layer:
         mi, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_found[0], -1.5, velocity,
@@ -626,17 +541,14 @@ class TrackFinder:
         ind = track_ind
         hits = [hit.ind for hit in hits_found]
 
-
-        
         x0 = state_predicted_step_0[0]
+        y0 = hits_found[0].y
         z0 = state_predicted_step_0[1]
         t0 = state_predicted_step_0[2]
         Ax = state_predicted_step_0[3]
+        Ay = 1 # Slope of Y vs Y, which is always 1
         Az = state_predicted_step_0[4]
         At = state_predicted_step_0[5]
-
-        y0 = hits_found[0].y
-        Ay = 1 # Slope of Y vs Y, which is always 1
 
         hits_filtered = [[xsm[0], hit.y, xsm[1], xsm[2]] for hit,xsm in zip(hits_found[1:], kalman_result.Xsm)]
         hits_filtered.insert(0, [x0,y0,z0,t0])
@@ -646,16 +558,14 @@ class TrackFinder:
         return track
 
     def prepare_output_v2(self, kalman_result, hits_found, track_ind=0):
-        """ 
-        Turn the Kalman filter result into a Track object
-
-        """
+        """ Turn the Kalman filter result into a Track object"""
         # propagate the KF result from the second hit to the first hit
         Ax, Az, At = kalman_result.Xsm[0][3:]
-        velocity = [Ax, Az, At]     if self.parameters["fit_track_MultipleScattering"] else None       # Velocity is needed for multiple scattering      
+
+        # Velocity is needed for multiple scattering
+        velocity = [Ax, Az, At] if self.parameters["fit_track_MultipleScattering"] else None
         state_predicted_step_0 = kalman_result.Xsm[0]
         statecov_predicted_step_0 = kalman_result.Csm[0]
-
 
         # Add the covariance of one additional layer:
         mi, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_found[0], -1.5, velocity,
@@ -665,46 +575,42 @@ class TrackFinder:
         ind = track_ind
         hits = [hit.ind for hit in hits_found]
 
-
-        
         x0 = state_predicted_step_0[0]
+        y0 = hits_found[0].y
         z0 = state_predicted_step_0[1]
         t0 = state_predicted_step_0[2]
         Ax = state_predicted_step_0[3]
+        Ay = 1 # Slope of Y vs Y, which is always 1
         Az = state_predicted_step_0[4]
         At = state_predicted_step_0[5]
-
-        y0 = hits_found[0].y
-        Ay = 1 # Slope of Y vs Y, which is always 1
 
         hits_filtered = [[xsm[0], hit.y, xsm[1], xsm[2]] for hit,xsm in zip(hits_found[0:], kalman_result.Xsm)]
 
         # Track is a namedtuple("Track", ["x0", "y0", "z0", "t", "Ax", "Ay", "Az", "At", "cov", "chi2", "ind", "hits", "hits_filtered"])
         track = datatypes.Track(x0, y0, z0, t0, Ax, Ay, Az, At, cov, chi2, ind, hits, hits_filtered)
-        return track        
+        return track
 
 
     def prepare_output_back(self, kalman_result, hits_found_temp, track_ind=0):
-        """ 
-        Turn the Kalman filter result into a Track object
-
-        """
+        """Turn the Kalman filter result into a Track object"""
         # propagate the KF result from the second hit to the first hit
         hits_found = hits_found_temp[::-1]
         Ax, Az, At = kalman_result.Xsm[0][3:]
-        velocity = [Ax, Az, At]     if self.parameters["fit_track_MultipleScattering"] else None       # Velocity is needed for multiple scattering      
+
+        # Velocity is needed for multiple scattering
+        velocity = [Ax, Az, At] if self.parameters["fit_track_MultipleScattering"] else None
 
         mi, Vi, Hi, Fi, Qi = Util.track.add_measurement(hits_found[0], hits_found[0].y - hits_found[1].y, velocity,
                                             self.parameters["multiple_scattering_p"],self.parameters["multiple_scattering_length"])
         state_predicted_step_0 = Fi@kalman_result.Xsm[0]
         x0 = state_predicted_step_0[0]
+        y0 = hits_found[0].y
         z0 = state_predicted_step_0[1]
         t0 = state_predicted_step_0[2]
         Ax = state_predicted_step_0[3]
+        Ay = 1 # Slope of Y vs Y, which is always 1
         Az = state_predicted_step_0[4]
         At = state_predicted_step_0[5]
-        y0 = hits_found[0].y
-        Ay = 1 # Slope of Y vs Y, which is always 1
 
         hits_filtered = [[xsm[0], hit.y, xsm[1], xsm[2]] for hit,xsm in zip(hits_found[1:], kalman_result.Xsm)]
         hits_filtered.insert(0, [x0,y0,z0,t0])
@@ -713,30 +619,29 @@ class TrackFinder:
         cov = kalman_result.Cf[-1]
         chi2 = kalman_result.chift_total
         ind = track_ind
-        hits = [hit.ind for hit in hits_found[::-1]]        
+        hits = [hit.ind for hit in hits_found[::-1]]
 
         track_result = kalman_result.Xf[-1]
         x0 = track_result[0]
+        y0 = hits_found[-1].y
         z0 = track_result[1]
         t0 = track_result[2]
         Ax = track_result[3]
+        Ay = 1 # Slope of Y vs Y, which is always 1
         Az = track_result[4]
         At = track_result[5]
-        y0 = hits_found[-1].y
-        Ay = 1 # Slope of Y vs Y, which is always 1        
 
         # Track is a namedtuple("Track", ["x0", "y0", "z0", "t", "Ax", "Ay", "Az", "At", "cov", "chi2", "ind", "hits", "hits_filtered"])
         track = datatypes.Track(x0, y0, z0, t0, Ax, Ay, Az, At, cov, chi2, ind, hits, hits_filtered)
-        return track        
+        return track
 
 
     def prepare_output_ls(self, popt, pcov, chi2, hits_found, track_ind):
         x0, z0, t0, Ax, Az, At  = popt
         y0 = hits_found[0].y
         Ay = 1
-        hits = [hit.ind for hit in hits_found[::-1]]        
+        hits = [hit.ind for hit in hits_found[::-1]]
         hits_filtered=[[x0 + Ax*(hit.y-y0), hit.y, z0 + Az*(hit.y-y0), t0 + At*(hit.y-y0)] for hit in hits_found]
         track = datatypes.Track(x0, y0, z0, t0, Ax, Ay, Az, At, pcov, chi2, track_ind, hits, hits_filtered)
-        return track             
+        return track
 
-        

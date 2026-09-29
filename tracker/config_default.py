@@ -1,8 +1,7 @@
 parameters = {}
 
-
 # Run parameters
-parameters["debug"]=False                   # Show debug info
+parameters["debug"]=True                   # Show debug info
 parameters["debug_tracker"]=False
 parameters["debug_vertexer"]=False
 parameters["print_n"]=10
@@ -19,7 +18,7 @@ parameters["multiple_scattering_length"]=0.06823501107481977 # [1] material thic
 # Track parameters
 parameters["cut_track_SeedSpeed"]=1                 # in the unit of c. Limit the maximum speed formed by the seed.
 parameters["cut_track_HitAddChi2"]=12               # Only used when method is "greedy"
-parameters["cut_track_HitDropChi2"]=7               # Set to -1 to turn off
+parameters["cut_track_HitDropChi2"]=-1               # Set to -1 to turn off
 parameters["cut_track_HitProjectionSigma"]=7        # Number of sigmas
 parameters["cut_track_TrackChi2Reduced"]=3          # Only use this for track with 3 hits
 parameters["cut_track_TrackChi2Prob"]=0.9           # Chi-square probablity (calculated from chi2_cdf(x, DOF))
