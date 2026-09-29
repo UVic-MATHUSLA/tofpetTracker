@@ -1,7 +1,7 @@
 parameters = {}
 
 # Run parameters
-parameters["debug"]=False                   # Show debug info
+parameters["debug"]=True                   # Show debug info
 parameters["debug_tracker"]=False
 parameters["debug_vertexer"]=False
 parameters["print_n"]=10
