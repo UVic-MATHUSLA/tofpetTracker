@@ -1,17 +1,13 @@
 import copy
-import os, sys
-from collections import namedtuple
 import numpy as np
-from numpy.linalg import inv
-import scipy as sp
-import scipy.constants
 import iminuit
+from collections import namedtuple
 
-# Internal modules
 from . import utilities as Util
 from . import kalmanfilter as KF
 from . import datatypes
-import functools; print = functools.partial(print, flush=True) #make python actually flush the output!
+import functools
+print = functools.partial(print, flush=True) #make python actually flush the output!
 
 
 class chi2_vertex:
@@ -23,7 +19,6 @@ class chi2_vertex:
         point = [x0, y0, z0, t0]
         for track in self.tracks:
             error += Util.track.chi2_point_track(point, track, multiple_scattering=True, speed_constraint=False)
-            # error += Util.track.chi2_point_track(point_temp, track_temp, multiple_scattering=True, speed_constraint=False)
         return error
 
 

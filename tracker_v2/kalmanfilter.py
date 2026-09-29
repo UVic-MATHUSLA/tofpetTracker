@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.linalg import inv
-import functools; print = functools.partial(print, flush=True) #make python actually flush the output!
+import functools
+print = functools.partial(print, flush=True) #make python actually flush the output!
 
 class KalmanFilterFind():
     """
