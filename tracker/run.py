@@ -1,3 +1,4 @@
+#!/opt/anaconda3/envs/formathusla/bin/python
 import os
 import argparse
 import importlib
@@ -5,6 +6,11 @@ import time
 import pickle
 import functools
 print = functools.partial(print, flush=True) # make python actually flush the output!
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
 
 from tracker import trackfinder as TF
 from tracker import vertexfinder as VF
@@ -77,11 +83,11 @@ def main():
     print(f"Running on {entries} events...")
     time_start = time.time()
     for entry in range(entries):
-        if (entry)%config.parameters["print_n"] == 0 or DEBUG:
+        if (entry) % config.parameters["print_n"] == 0 or DEBUG:
             time_stop = time.time()
             if DEBUG:
-                print("\n\n===================================")
-            print("   Event is ", entry+config.parameters["start_event"], ", time", time_stop-time_start, "seconds")
+                print("\n=====================================\n")
+            print("Event:", entry+config.parameters["start_event"], ", time:", time_stop-time_start, "s")
 
         results["hits"].append([])
         results["tracks"].append([])
@@ -92,7 +98,7 @@ def main():
         for group in groups:
             hits = data[group][entry]
             results["hits"][-1].extend(hits)
-            if group!="inactive":
+            if group != "inactive":
                 # Rotate hits so that y is always the layer direction
                 if metadata["groups"][group]["flip_index"] is not None:
                     hits = [Util.general.flip_hit(hit, metadata["groups"][group]["flip_index"]) for hit in hits]
@@ -101,20 +107,20 @@ def main():
                 if 0 < config.parameters["detector_efficiency"] < 1:
                     hits = Util.processing.drop_hits(hits, config.parameters["detector_efficiency"], config.parameters["seed"])
                 elif config.parameters["detector_efficiency"] != 1:
-                    print("   Warning: detector efficiency is not in the range of (0,1]. Using default value 1.")
+                    print("Warning: detector efficiency is not in the range of (0,1]. Using default value 1.")
 
                 # Run track reconstruction
                 tracks = tf.run(hits)
 
                 # Rotate tracks and vertices back
                 if metadata["groups"][group]["flip_index"] is not None:
-                    tracks   = [Util.general.flip_track(track, metadata["groups"][group]["flip_index"]) for track in tracks]                
+                    tracks = [Util.general.flip_track(track, metadata["groups"][group]["flip_index"]) for track in tracks]                
                     # vertices = [Util.general.flip_vertex(vertex, metadata["groups"][group]["flip_index"]) for vertex in vertices]                
 
                 # Save result
                 results["tracks"][-1].extend(tracks)
-                tracks_found+=len(tracks)
-                event_tracks+=len(tracks)
+                tracks_found += len(tracks)
+                event_tracks += len(tracks)
 
         # Assign the tracks a unique index:
         for itrack in range(len(results["tracks"][-1])):
@@ -123,14 +129,14 @@ def main():
         # Run vertex reconstruction
         vertices = vf.run(results["tracks"][-1]) 
         results["vertices"][-1].extend(vertices)
-        vertices_found+=len(vertices)
-        event_vertices+=len(vertices)
+        vertices_found += len(vertices)
+        event_vertices += len(vertices)
 
         tracks_found_events += event_tracks > 0
         vertices_found_events += event_vertices > 0
 
-    time_stop=time.time()
-    print("Finished! Total time",time_stop-time_start, "seconds")
+    time_stop = time.time()
+    print("Finished! Total time:", time_stop-time_start, "s")
     print("---------------------------------")
     print("Summary")
     print("   Events:",entries)
