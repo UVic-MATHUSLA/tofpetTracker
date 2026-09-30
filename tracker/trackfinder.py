@@ -26,7 +26,7 @@ class TrackFinder:
             "cut_track_TrackSpeed": [25,35],        # [cm/ns], [speed_low, speed_high]. 30 is the speed of light
             "fit_track_MultipleScattering": False,
             "cut_track_MultipleScatteringFind": False,
-            "fit_track_Method": "backward", # choose one of {"backward", "forward", "forward-seed", "least-square", "least-square-ana"}
+            "fit_track_Method": "backward", # One of: backward, forward, forward-seed, least-square, least-square-ana
             "fit_track_LeastSquareIters":2, # No need to change
             "multiple_scattering_p": 500, # [MeV/c] momentum of multiple scattering, 
             "multiple_scattering_length": 0.06823501107481977 # [1] material thickness in the unit of scattering length
@@ -44,15 +44,20 @@ class TrackFinder:
         self.seeds = self.seeding(self.hits)
         self.hit_pair = Util.HitPair(self.hits)
 
+        if self.debug:
+            print(f"TrackFinder input: {len(self.hits)} hits, {self.total_layers} layers, {len(self.seeds)} seeds")
+
         if self.parameters["cut_track_TrackNHitsMin"]>self.total_layers:
+            if self.debug:
+                print("Track finding stopped: fewer layers than cut_track_TrackNHitsMin")
             return self.tracks
 
         hit_found_inds = []
         for track_TrackNHitsMin in range(self.parameters["cut_track_TrackNHitsMin"], self.total_layers+1)[::-1]:
-            if self.debug: print(f"\n\n================Looking for track with {track_TrackNHitsMin} hits=============")
+            if self.debug: print(f"\n====Looking for track with {track_TrackNHitsMin} hits====\n")
             hits_found_all = []
             self.seeds_unused = []
-            while len(self.seeds)>0:
+            while len(self.seeds) > 0:
                 if len(self.hits_grouped.keys())<self.parameters["cut_track_TrackNHitsMin"]: # If not enough hits left:
                     break
 
@@ -65,7 +70,7 @@ class TrackFinder:
 
                 # Apply cuts: if not enough hits, drop this track
                 if len(hits_found) < track_TrackNHitsMin:
-                    if self.debug: print(f"   Track finding failed (adding), not enough hits only found: {len(hits_found)}")
+                    if self.debug: print(f"Track finding failed (adding), not enough hits only found: {len(hits_found)}")
                     # Keep the seeds that potentially matches to a track
                     if len(hits_found) >= self.parameters["cut_track_TrackNHitsMin"]:
                         self.seeds_unused.append(seed)
@@ -84,7 +89,7 @@ class TrackFinder:
                     hits_found.pop(ind)
                 # If not enough hits, drop this track
                 if len(hits_found) < track_TrackNHitsMin:
-                    if self.debug: print(f"   Track finding failed (dropping), not enough hits only found: {len(hits_found)}")
+                    if self.debug: print(f"Track finding failed (dropping), not enough hits only found: {len(hits_found)}")
                     # Keep the seeds that potentially matches to a track
                     if len(hits_found) >= self.parameters["cut_track_TrackNHitsMin"]:
                         self.seeds_unused.append(seed)
@@ -129,18 +134,18 @@ class TrackFinder:
                 if (track_chi2_prob > self.parameters["cut_track_TrackChi2Prob"] and ndof > 3) or \
                    (track_chi2_reduced > self.parameters["cut_track_TrackChi2Reduced"] and ndof <= 3):
                     if self.debug:
-                        print(f" Track vetoed, chi2 too large. Chi2/nodf: {track_chi2}/{ndof}, prob = {track_chi2_prob}")
+                        print(f"Track vetoed, chi2 too large. Chi2/nodf: {track_chi2}/{ndof}, prob = {track_chi2_prob}")
                     continue
 
                 # Cut on speed
                 state = track_output # Track is a namedtuple("Track", ["x0", "y0", "z0", "t", "Ax", "Ay", "Az", "At", "cov", "chi2", "ind", "hits", "hits_filtered"])
                 speed = np.linalg.norm([state.Ax/state.At, state.Az/state.At, 1/state.At])
                 if not (self.parameters["cut_track_TrackSpeed"][0] < speed < self.parameters["cut_track_TrackSpeed"][1]):
-                    if self.debug: print(f" Track vetoed. Speed of the track: {speed}[cm/ns]")
+                    if self.debug: print(f"Track vetoed. Speed of the track: {speed}[cm/ns]")
                     continue
                 elif self.debug:
-                    print(f"   [Track found]", track_output) 
-                    print("   Added hits:")
+                    print(f" [Track found]", track_output) 
+                    print("Added hits:")
                     for t in hits_found:
                         print("   ", t)
 
@@ -162,10 +167,10 @@ class TrackFinder:
             # self.hits_grouped = Util.track.group_hits_by_layer(self.hits, used_index = hit_found_inds)
 
         if self.debug:
-            print("=========Track finding finished======")
+            print("\n========Track finding finished=======\n")
             print("Tracks found:")
             for t in self.tracks:
-                print(t)
+                print("   ", t)
         return self.tracks
 
 
