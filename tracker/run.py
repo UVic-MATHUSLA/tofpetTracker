@@ -3,14 +3,16 @@ import os
 import argparse
 import importlib
 import time
-import pickle
 import functools
+import pickle
 print = functools.partial(print, flush=True) # make python actually flush the output!
 import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
+WORKSPACE_ROOT = PROJECT_ROOT.parent
+if str(WORKSPACE_ROOT) not in sys.path: sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from tracker import trackfinder as TF
 from tracker import vertexfinder as VF
@@ -22,8 +24,6 @@ def main():
                 prog='pytracker',
                 description='Reconstructing track and vertex without magnetic field.',)
     parser.add_argument('input_filename', type=str, help='Path: input filename')
-    parser.add_argument('output_directory', type=str, help='Path: output directory. The output filename is the output directory + basename of input filename + output_suffix + .pkl')
-    parser.add_argument('--output_suffix', type=str, default="", help='Path: (optional) suffix to the output filename')
     parser.add_argument('--io', default="io_MuSim", type=str, help='IO module to parse the input file. Default IO is for Mathusla simulation ROOT file ./io_user/io_MuSim.py. Provide the full path if the IO file is not under ./io_user/')
     parser.add_argument('--config', default="", type=str, help='Path: configuration file. Default configuration (config_defaut.py) will be used if no config file is provided.')
     parser.add_argument('--printn', default=100, type=int, help='Print every [printn] event')
@@ -38,13 +38,13 @@ def main():
     io_user = importlib.machinery.SourceFileLoader("*", io_full_path).load_module()
     print("Using IO file",io_full_path)
 
-    # Output file
-    output_filename = os.path.abspath(args.output_directory) \
-                        + "/"+ os.path.splitext(os.path.basename(args.input_filename))[0]\
-                        + args.output_suffix \
-                        + ".pkl"
+    # Output file: keep it beside the input and replace the reconstruction suffix.
+    input_path = Path(args.input_filename).expanduser().resolve()
+    if not input_path.name.endswith("_xyz.root"):
+        parser.error("input filename must end with '_xyz.root'")
+    output_filename = str(input_path.with_name(input_path.name[:-len("_xyz.root")] + "_trks.root"))
     if os.path.exists(output_filename) and not args.overwrite:
-        print("Output file exists. Processing terminated. Use --overwrite option to force running the tracker, or assign a different suffix by --output_suffix=.")
+        print("Output file exists. Processing terminated. Use --overwrite option to replace it.")
         return
 
     # Parse the configuration
@@ -69,7 +69,7 @@ def main():
                                 start_event=config.parameters["start_event"], end_event=config.parameters["end_event"])
     
     # Make variables to hold the result
-    results = {"hits":[], "tracks":[], "vertices":[]}
+    results = {"hits":[], "tracks":[], "vertices":[], "eventids": metadata.get("eventids", [])}
     groups = list(data.keys())
     entries = len(data[groups[0]])
 
@@ -114,8 +114,8 @@ def main():
 
                 # Rotate tracks and vertices back
                 if metadata["groups"][group]["flip_index"] is not None:
-                    tracks = [Util.general.flip_track(track, metadata["groups"][group]["flip_index"]) for track in tracks]                
-                    # vertices = [Util.general.flip_vertex(vertex, metadata["groups"][group]["flip_index"]) for vertex in vertices]                
+                    tracks = [Util.general.flip_track(track, metadata["groups"][group]["flip_index"]) for track in tracks]
+                    # vertices = [Util.general.flip_vertex(vertex, metadata["groups"][group]["flip_index"]) for vertex in vertices]
 
                 # Save result
                 results["tracks"][-1].extend(tracks)
@@ -137,21 +137,21 @@ def main():
 
     time_stop = time.time()
     print("Finished! Total time:", time_stop-time_start, "s")
-    print("---------------------------------")
+    print("-------------------------------------")
     print("Summary")
     print("   Events:",entries)
     print("   Tracks:",tracks_found)
     print("   Vertices:",vertices_found)
     print("   Events with track:",tracks_found_events)
     print("   Events with vertex:",vertices_found_events)
-    print("---------------------------------")
+    print("-------------------------------------")
 
-    # Save the results
-    # print("Writing file to disk.")
-    # with open(output_filename,"wb") as f:
-    #     pickle.dump(results, f)  
-    # print("Output saved as",output_filename)
+    print("Writing output to", output_filename)
+    Util.write_results(results, output_filename)
 
+    # pickle_filename = str(input_path.with_name(input_path.name[:-len("xyz.root")] + "trks.pkl"))
+    # with open(pickle_filename,"wb") as f:
+    #     pickle.dump(results, f)
 
 if __name__ == "__main__":
     main()
