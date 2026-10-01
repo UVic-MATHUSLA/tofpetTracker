@@ -75,6 +75,7 @@ def load(filename, printn=2000, start_event=0, end_event=-1, *args, **kwargs):
     elif version == 3:
         data_keys = ["inactive", "1"]
     data = {key:[] for key in data_keys}
+    eventids = []
 
     # Read the file
     for entry in range(*entries_run):
@@ -82,6 +83,8 @@ def load(filename, printn=2000, start_event=0, end_event=-1, *args, **kwargs):
         for key in data:
             data[key].append([])
 
+        Tree.GetEntry(entry)
+        eventids.append(int(getattr(Tree, "hitevtid", entry)))
         hits = root_hits_extractor(Tree, entry, version)
 
         # Group the hits into layer groups
@@ -111,7 +114,7 @@ def load(filename, printn=2000, start_event=0, end_event=-1, *args, **kwargs):
     print("Finished loading file")
 
     # Make metadata
-    metadata = {"groups":{}}
+    metadata = {"groups":{}, "eventids": eventids}
     if version == 1:
         metadata["groups"]["1"] = {"flip_index":None}
         metadata["groups"]["2"] = {"flip_index":[1,2]}
@@ -123,20 +126,10 @@ def load(filename, printn=2000, start_event=0, end_event=-1, *args, **kwargs):
     return data, metadata
 
 
-# def dump(data, filename):
-    
-#     with open(output_filename,"wb") as f:
-#         pickle.dump(results, f)    
-#     # joblib.dump(data,filename+".joblib")
-
-
 def exists(filename):
     return os.path.exists(filename+".joblib")
 
 
-# ----------------------------------------------------------
-# Helper functions
-# ----------------------------------------------------------
 def open(filename):
     tfile = ROOT.TFile.Open(filename)
     return tfile
@@ -233,13 +226,6 @@ def root_hits_extractor(Tree, entry, version):
         Digi_t_err = c2list(Tree.hitterr)
         Digi_layer = c2list(Tree.hitlay)
         Digi_det_id = c2list(Tree.hitdetid)
-        # convert the units from mm to cm
-        Digi_x = [x*0.1 for x in Digi_x]
-        Digi_y = [y*0.1 for y in Digi_y]
-        Digi_z = [z*0.1 for z in Digi_z]
-        Digi_x_err = [x_err*0.1 for x_err in Digi_x_err]
-        Digi_y_err = [y_err*0.1 for y_err in Digi_y_err]
-        Digi_z_err = [z_err*0.1 for z_err in Digi_z_err]
         return make_hits_teststand(Digi_x, Digi_y, Digi_z, Digi_t, Digi_x_err, Digi_y_err, Digi_z_err, Digi_t_err, Digi_layer, Digi_det_id)
 
 
