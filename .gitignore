@@ -1,12 +1,12 @@
 # Pickle data files
 *.joblib
+*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info
-
 
 # IPython
 profile_default/
