@@ -5,6 +5,82 @@ import iminuit
 
 from tracker import kalmanfilter as KF
 from tracker import datatypes
+from tofpetHelper.root import tfile_writer
+
+
+def write_results(results, output_filename):
+    write = tfile_writer("events", output_filename)
+
+    branches = {"trackid": "int",
+                "nhits": "int",
+                "hitx": "vector<float>",
+                "hity": "vector<float>",
+                "hitz": "vector<float>",
+                "hitt": "vector<float>",
+                "hitxerr": "vector<float>",
+                "hityerr": "vector<float>",
+                "hitzerr": "vector<float>",
+                "hitterr": "vector<float>",
+                "hitlay": "vector<int>",
+                "hitind": "vector<int>",
+                "hitdetid": "vector<int>",
+                "trackx0": "float",
+                "tracky0": "float",
+                "trackz0": "float",
+                "trackt0": "float",
+                "trackAx": "float",
+                "trackAy": "float",
+                "trackAz": "float",
+                "trackAt": "float",
+                "trackchi2": "float",
+                "trackcov": "vector<float>",
+                "trackx": "vector<float>",
+                "tracky": "vector<float>",
+                "trackz": "vector<float>",
+                "trackt": "vector<float>"}
+
+
+    for name, branch_type in branches.items(): write.define_branch(name, branch_type)
+
+
+    eventids = results.get("eventids", range(len(results["hits"])))
+    for event, (hits, tracks) in enumerate(zip(results["hits"], results["tracks"])):
+        # Write one row per accepted track. Events without tracks are omitted.
+        eventid = eventids[event]
+        hit_ind = {hit.ind: hit for hit in hits}
+        for track in tracks:
+            trk_hits = [hit_ind[ind] for ind in track.hits if ind in hit_ind]
+            filtered_x, filtered_y, filtered_z, filtered_t = zip(*track.hits_filtered) if track.hits_filtered else ([], [], [], [])
+
+            write.fill({"trackid": eventid,
+                        "nhits": len(trk_hits),
+                        "hitx": [hit.x for hit in trk_hits],
+                        "hity": [hit.y for hit in trk_hits],
+                        "hitz": [hit.z for hit in trk_hits],
+                        "hitt": [hit.t for hit in trk_hits],
+                        "hitxerr": [hit.x_err for hit in trk_hits],
+                        "hityerr": [hit.y_err for hit in trk_hits],
+                        "hitzerr": [hit.z_err for hit in trk_hits],
+                        "hitterr": [hit.t_err for hit in trk_hits],
+                        "hitlay": [hit.layer for hit in trk_hits],
+                        "hitind": [hit.ind for hit in trk_hits],
+                        "hitdetid": [hit.det_id for hit in trk_hits],
+                        "trackchi2": track.chi2,
+                        "trackx": list(filtered_x),
+                        "tracky": list(filtered_y),
+                        "trackz": list(filtered_z),
+                        "trackt": list(filtered_t),
+                        "trackx0": track.x0,
+                        "tracky0": track.y0,
+                        "trackz0": track.z0,
+                        "trackt0": track.t0,
+                        "trackAx": track.Ax,
+                        "trackAy": track.Ay,
+                        "trackAz": track.Az,
+                        "trackAt": track.At,
+                        "trackcov": track.cov.reshape(-1).tolist()})
+
+    write.write_and_close()
 
 
 class HitPair:
