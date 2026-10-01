@@ -261,7 +261,7 @@ class TrackFinder:
             if self.method == "recursive":
                 hits_found_backward, chi2 = self.find_in_layers_recursive(hits, hits_layer_grouped, FIND_BACKWARD_LAYERS, kf_find, step_pre)
             else:
-                hits_found_backward, chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_BACKWARD_LAYERS, kf_find, step_pre, hit_pair)
+                hits_found_backward, chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_BACKWARD_LAYERS, kf_find, step_pre, hit_pair=hit_pair)
             # Order of found hits also needs to be reversed for backward finding
             hits_found_backward = hits_found_backward[::-1] 
             hits_found_backward.extend(hits_found)
@@ -290,7 +290,7 @@ class TrackFinder:
             if self.method == "recursive":
                 hits_found_forward,chi2 = self.find_in_layers_recursive(hits, hits_layer_grouped, FIND_FORWARD_LAYERS, kf_find, step_pre)
             else:
-                hits_found_forward,chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_FORWARD_LAYERS, kf_find, step_pre, hit_pair)
+                hits_found_forward,chi2 = self.find_in_layers_greedy(hits, hits_layer_grouped, FIND_FORWARD_LAYERS, kf_find, step_pre, hit_pair=hit_pair)
             chi2_found = chi2
             hits_found = hits_found[:2] + hits_found_forward
 
